@@ -3,9 +3,8 @@ from queue import Queue
 
 panel = tk.Tk()
 panel_screen_buffer = tk.StringVar()
-panel_screen_buffer.set("--------")
+#panel_screen_buffer.set("--------")
 panel_buffer = Queue(maxsize = 8)
-
 sensor_num = 16
 
 button_labels = ["1","2","3","Esc"  ,
@@ -52,8 +51,14 @@ center_x = int(screen_w/2)# - panel_w/2)
 #panel.geometry(f'{panel_w}x{panel_h}+{center_x}+{center_y}')
 panel.resizable(False,False)
 
-panel_screen = tk.Label(panel,textvariable=panel_screen_buffer,font=('Hack',32),height=2)
-panel_screen.grid(row=0,column=0,columnspan=4,sticky="ew")
+#panel screen
+panel_screen_frame = tk.LabelFrame(panel, height=110,borderwidth=3,highlightthickness=5)
+panel_screen_frame.grid(row=0,column=0,columnspan=4,sticky='nsew')
+panel_screen_frame.pack_propagate(0)
+panel_screen = tk.Label(panel_screen_frame,
+                        textvariable=panel_screen_buffer,
+                        font=('Consolas',40))
+panel_screen.pack(side="top")
 
 #array de botones
 pixel = tk.PhotoImage(width = 1,height = 1)
@@ -61,11 +66,12 @@ B_arr = [0,0]*len(button_labels)
 for label_idx in range(len(button_labels)):
     B_arr[label_idx] = tk.Button(panel,
                                  text=button_labels[label_idx],
-                                 width = 60, height = 60,
+                                 width = 50, height = 50,
                                  padx=0,pady=0,
                                  image=pixel, 
                                  compound='center',
-                                 highlightthickness=0,
+                                 highlightthickness=5,
+                                 borderwidth=3,
                                  command=lambda i = label_idx: buttonCallback(i))
     B_arr[label_idx].grid(row = (label_idx//4)+1, column = (label_idx % 4),sticky="ew")
 
@@ -77,18 +83,17 @@ S_arr = [0,0]*sensor_num
 for sensor_idx in range(sensor_num):
     S_arr[sensor_idx] = tk.Button(panel,
                                  text=str(sensor_idx),
-                                 width = 60, height = 60,
+                                 width = 50, height = 50,
                                  padx=0,pady=0,
                                  image=pixel, 
                                  compound='center',
-                                 highlightthickness=0,
+                                 highlightthickness=5,
+                                 borderwidth=3,
                                  #command=lambda i = label_idx: buttonCallback(i)
                                  )
     S_arr[sensor_idx].grid(column = (sensor_idx//4)+5, row = (sensor_idx % 4)+1)
 
 
 
-#B = tk.Button(panel, text = "APRETAR", command = buttonCallback)
-#B.pack()
 panel.mainloop()
 
