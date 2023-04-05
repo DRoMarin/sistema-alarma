@@ -35,30 +35,37 @@ def buttonCallback(button_pressed):
             panel_buffer.queue.clear()
             updateScreen(panel_buffer)
         case _:
-            print("TBD")
+            print("TBD") #################################################
 
 ##### configuracion ventana principal
 panel.title('PANEL SIMULADOR')
 #tamaño
-panel_w = 1100
-panel_h = 250
+#panel_w = 650
+#panel_h = 500
 #centrado
 screen_w = panel.winfo_screenwidth()
 screen_h = panel.winfo_screenheight()
-center_y = int(screen_h/2)# - panel_h/2) 
-center_x = int(screen_w/2)# - panel_w/2)
+#center_y = int(screen_h/2 - panel_h/2) 
+#center_x = int(screen_w/2 - panel_w/2)
 
 #panel.geometry(f'{panel_w}x{panel_h}+{center_x}+{center_y}')
 panel.resizable(False,False)
 
 #panel screen
-panel_screen_frame = tk.LabelFrame(panel, height=110,borderwidth=3,highlightthickness=5)
+panel_screen_frame = tk.LabelFrame(panel, height=130,borderwidth=3,highlightthickness=5)
 panel_screen_frame.grid(row=0,column=0,columnspan=4,sticky='nsew')
 panel_screen_frame.pack_propagate(0)
 panel_screen = tk.Label(panel_screen_frame,
                         textvariable=panel_screen_buffer,
                         font=('Consolas',40))
 panel_screen.pack(side="top")
+
+led_screen_frame = tk.LabelFrame(panel_screen_frame,
+                                 height=500,
+                                 width=1000,
+                                 borderwidth=1,
+                                 highlightthickness=0)
+led_screen_frame.pack(side="bottom")
 
 #array de botones
 pixel = tk.PhotoImage(width = 1,height = 1)
