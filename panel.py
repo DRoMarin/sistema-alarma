@@ -3,14 +3,15 @@ from queue import Queue
 import time
 import threading as th
 
-#import sistema
 
+#########################################################################
+###################           PANEL FRONTAL           ###################
+#########################################################################
 panel = tk.Tk()
 panel_screen_buffer = tk.StringVar()
-#panel_screen_buffer.set("--------")
 panel_buffer = Queue(maxsize = 8)
 sensor_num = 16
-
+#panel_screen_buffer.set("--------")
 
 button_labels = ["1","2","3","Esc"  ,
                  "4","5","6","Enter",
@@ -51,17 +52,6 @@ def buttonCallback(button_pressed):
 def sensorCallback(sensor_pressed):
     #TBD: AGREGAR FUNCIONES SISTEMA
     print(sensor_pressed)
-
-def systemTask():
-    while True:
-        if close_event.is_set():
-            break
-        if panel_event.is_set():
-            command = panel_queue.get()
-            print(command)
-            panel_event.clear()
-    print("CERRANDO")
-    
 
 ##### configuracion ventana principal
 panel.title('PANEL SIMULADOR')
@@ -132,14 +122,204 @@ for sensor_idx in range(sensor_num):
                                  command = lambda i = sensor_idx: sensorCallback(i))
     S_arr[sensor_idx].grid(column = (sensor_idx//4)+5, row = (sensor_idx % 4)+1)
 
-system_thread = th.Thread(target=systemTask)
+#########################################################################
+#####################       MAQUINA DE ESTADOS      #####################
+#########################################################################
+
+#diccionario valores monitor
+estados = {
+    "Armado":1,
+    "Alarma":3,
+    "Inactivo":0
+}
+subestados = {
+    "Zona":1,
+    "Armado":3,
+    "Usuario":5,
+    "Telefono":7,
+    "Bloqueo":15,
+    "Espera":0
+}
+modo = {
+    "NA" : 0,
+    "Zona 0": 5,
+    "Zona 1": 10 
+}
+alarma = {
+    "NA" : 0,
+    "Incendio": 12,
+    "Panico": 2,
+    "Allanamiento": 15  
+}
+bocina = {
+    "Apagado" : 0,
+    "Intermitente" : 1,
+    "Permanente" : 3,
+}
+fuente = {
+    "AC" : 0,
+    "Bateria" : 1
+}
+llamada = {
+    "Presente" : 1,
+    "Espera" : 3,
+    "No Presente" : 0
+}
+
+class State(object):
+    def __init__(self):
+        pass
+    @property
+    def name(self):
+        return ''
+    def enter(self, machine):
+        pass
+    def exit(self, machine):
+        pass
+    def update(self, machine):
+        pass
+
+class StateMachine(object):
+    def __init__(self):
+        self.state = None
+        self.states = {} #dictionary
+        #self.buffer_update = False
+        
+        self.EstadoActual = None
+        self.SubestadoActual = None
+        self.EstadoReportado = None
+        self.ModoArmado = 0
+        self.TipoAlarma = 0
+        self.AccionBocina = 0
+        self.FuenteActiva = 0
+        self.SolicitudLlamada = 0
+        self.ClavesInvalidas = 0
+
+    def add_state(self,state):
+        self.states[state.name] = state
+
+    def go_to_state(self, state_name):
+        if self.state:
+            print('SALIENDO %s' %(self.state.name))
+            self.state.exit(self)
+        self.state = self.states[state_name]
+        print('ENTRANDO %s' %(self.state.name))
+        self.state.enter(self)
+
+    def update(self):
+        if self.state:
+            #TENTATIVO TBD: CHECK BOTONES DE PANICO/INCENDIO
+            #print('ACTUALIZANDO %s' %(self.state.name))
+            self.state.update(self)
+
+    def reset(self):
+        pass
+## INICIO SUPERESTADO INACTIVO
+class estadoEspera(State):
+    @property
+    def name(self):
+        return "Espera"
+    def enter(self, machine):
+        State.enter(self, machine)
+    def exit(self, machine):
+        State.exit(self, machine)
+    def update(self, machine):
+        #print("ESPERANDO...")
+        if panel_event.is_set():
+            command = panel_queue.get()
+            print(command)
+            panel_event.clear()
+            machine.go_to_state("Bloqueo")
+
+class subestadoArmado(State):
+    @property
+    def name(self):
+        return "Armado"
+    def enter(self, machine):
+        State.enter(self, machine)
+    def exit(self, machine):
+        State.exit(self, machine)
+    def update(self, machine):
+        #TBD
+        pass
+        
+
+class subestadoZona(State):
+    @property
+    def name(self):
+        return "Zona"
+    def enter(self, machine):
+        State.enter(self, machine)
+    def exit(self, machine):
+        State.exit(self, machine)
+    def update(self, machine):
+        #TBD
+        pass
+        
+
+class subestadoUsuario(State):
+    @property
+    def name(self):
+        return "Usuario"
+    def enter(self, machine):
+        State.enter(self, machine)
+    def exit(self, machine):
+        State.exit(self, machine)
+    def update(self, machine):
+        #TBD
+        pass
+        
+
+class subestadoTelefono(State):
+    @property
+    def name(self):
+        return "Telefono"
+    def enter(self, machine):
+        State.enter(self, machine)
+    def exit(self, machine):
+        State.exit(self, machine)
+    def update(self, machine):
+        #TBD
+        pass
+        
+
+class subestadoBloqueo(State):
+    @property
+    def name(self):
+        return "Bloqueo"
+    #def enter(self, machine):
+    #    State.enter(self, machine)
+    def exit(self, machine):
+        panel_buffer.queue.clear()
+        panel_queue.queue.clear()
+        panel_event.clear()
+    def update(self, machine):
+        time.sleep(5) #TBD: CAMBIAR A 5 MIN
+        machine.go_to_state("Espera")
+## FIN SUPERESTADO INACTIVO
+
+####    THREAD LOOP    ####
+def systemTask():
+
+    machine = StateMachine()
+    machine.add_state(estadoEspera())
+    machine.add_state(subestadoBloqueo())
+    machine.go_to_state('Espera')
+    while True:
+        if close_event.is_set():
+            break
+        machine.update()
+    print("CERRANDO")
 
 #eventos
 panel_event = th.Event()
 close_event = th.Event()
+
 #colas
 panel_queue = Queue()
 
+#main
+system_thread = th.Thread(target=systemTask)
 system_thread.start()
 panel.mainloop()
 close_event.set()
