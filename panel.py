@@ -433,6 +433,7 @@ def systemTask():
     machine.add_state(subestadoZona())
     machine.add_state(subestadoArmado())
     machine.add_state(subestadoUsuario())
+    machine.add_state(subestadoTelefono())
     machine.add_state(estadoAlarma())
     machine.go_to_state('Espera')
 
