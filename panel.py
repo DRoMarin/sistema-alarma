@@ -9,7 +9,7 @@ import threading as th
 #########################################################################
 panel = tk.Tk()
 panel_screen_buffer = tk.StringVar()
-panel_buffer = Queue(maxsize = 8)
+panel_buffer = Queue(maxsize = 9)
 sensor_num = 16
 #panel_screen_buffer.set("--------")
 
@@ -46,9 +46,11 @@ def buttonCallback(button_pressed):
             panel_event.set()
             panel_buffer.queue.clear()
             updateScreen(panel_buffer)
-        case _:
-            print("TBD") #################################################
-
+        case "PANIC":
+            panic_event.set()
+        case "INCEN":
+            incen_event.set()
+           
 def sensorCallback(sensor_pressed):
     #TBD: AGREGAR FUNCIONES SISTEMA
     print(sensor_pressed)
@@ -193,7 +195,10 @@ class StateMachine(object):
         self.AccionBocina = 0
         self.FuenteActiva = 0
         self.SolicitudLlamada = 0
-        self.ClavesInvalidas = 0
+        self.ContraInvalidas = 0
+
+        self.ContraUsuario = ""
+        self.ContraSistema = ""
 
     def add_state(self,state):
         self.states[state.name] = state
@@ -204,84 +209,107 @@ class StateMachine(object):
             self.state.exit(self)
         self.state = self.states[state_name]
         print('ENTRANDO %s' %(self.state.name))
+
+        panic_event.clear()
+        incen_event.clear()
+        panel_event.clear()
+        command_timer_event.clear()
+
+        panel_buffer.queue.clear()
+        panel_queue.queue.clear()
+        
         self.state.enter(self)
 
     def update(self):
         if self.state:
-            #TENTATIVO TBD: CHECK BOTONES DE PANICO/INCENDIO
-            #print('ACTUALIZANDO %s' %(self.state.name))
+            if panic_event.is_set() or incen_event.is_set():
+                self.go_to_state("Alarma")
             self.state.update(self)
 
     def reset(self):
         pass
+
 ## INICIO SUPERESTADO INACTIVO
 class estadoEspera(State):
     @property
     def name(self):
         return "Espera"
-    def enter(self, machine):
-        State.enter(self, machine)
-    def exit(self, machine):
-        State.exit(self, machine)
+    #def enter(self, machine):
+    #    State.enter(self, machine)
+    #def exit(self, machine):
+    #    State.exit(self, machine)
     def update(self, machine):
-        #print("ESPERANDO...")
+        
         if panel_event.is_set():
-            command = panel_queue.get()
-            print(command)
             panel_event.clear()
-            machine.go_to_state("Bloqueo")
+            command = panel_queue.get()[:4] 
+            print("RECIBIDO: " + command)
+
+            if command == machine.ContraUsuario:
+                machine.ContraInvalidas = 0
+                print("CONTRASEÑA USUARIO VALIDA")
+                state_change = validacionComando("Usuario")
+            elif command == machine.ContraSistema:
+                machine.ContraInvalidas = 0
+                print("CONTRASEÑA SISTEMA VALIDA")
+                state_change = validacionComando("Sistema")
+            elif machine.ContraInvalidas < 2:
+                machine.ContraInvalidas += 1
+            else:
+                machine.ContraInvalidas = 0
+                state_change = "Bloqueo"
+
+            print(state_change)
+            machine.go_to_state(state_change)
+         
 
 class subestadoArmado(State):
     @property
     def name(self):
         return "Armado"
-    def enter(self, machine):
-        State.enter(self, machine)
-    def exit(self, machine):
-        State.exit(self, machine)
+    #def enter(self, machine):
+    #    State.enter(self, machine)
+    #def exit(self, machine):
+    #    State.exit(self, machine)
     def update(self, machine):
         #TBD
         pass
         
-
 class subestadoZona(State):
     @property
     def name(self):
         return "Zona"
-    def enter(self, machine):
-        State.enter(self, machine)
-    def exit(self, machine):
-        State.exit(self, machine)
+    #def enter(self, machine):
+    #    State.enter(self, machine)
+    #def exit(self, machine):
+    #    State.exit(self, machine)
     def update(self, machine):
         #TBD
-        pass
-        
+        pass    
 
 class subestadoUsuario(State):
     @property
     def name(self):
         return "Usuario"
-    def enter(self, machine):
-        State.enter(self, machine)
-    def exit(self, machine):
-        State.exit(self, machine)
+    #def enter(self, machine):
+    #    State.enter(self, machine)
+    #def exit(self, machine):
+    #    State.exit(self, machine)
     def update(self, machine):
         #TBD
         pass
         
-
 class subestadoTelefono(State):
     @property
     def name(self):
         return "Telefono"
-    def enter(self, machine):
-        State.enter(self, machine)
-    def exit(self, machine):
-        State.exit(self, machine)
+    #def enter(self, machine):
+    #    State.enter(self, machine)
+    #def exit(self, machine):
+    #    State.exit(self, machine)
     def update(self, machine):
         #TBD
-        pass
-        
+        pass       
 
 class subestadoBloqueo(State):
     @property
@@ -289,22 +317,90 @@ class subestadoBloqueo(State):
         return "Bloqueo"
     #def enter(self, machine):
     #    State.enter(self, machine)
-    def exit(self, machine):
-        panel_buffer.queue.clear()
-        panel_queue.queue.clear()
-        panel_event.clear()
+    #def exit(self, machine):
+        #panel_buffer.queue.clear()
+        #panel_queue.queue.clear()
+        #panel_event.clear()
+    #    pass
     def update(self, machine):
         time.sleep(5) #TBD: CAMBIAR A 5 MIN
         machine.go_to_state("Espera")
 ## FIN SUPERESTADO INACTIVO
 
+class estadoAlarma(State):
+    @property
+    def name(self):
+        return "Alarma"
+    #def enter(self, machine):
+        #State.enter(self, machine)
+        #print("Alarma")
+    #def exit(self, machine):
+        #panel_buffer.queue.clear()
+        #panel_queue.queue.clear()
+        #panel_event.clear()
+       #pass
+    def update(self, machine):
+        if panel_event.is_set():
+            command = panel_queue.get()
+            print(command)
+            panel_event.clear()
+            machine.go_to_state("Espera")
+
+def commandTimerTask():
+    print("TIEMPO")
+    command_timer_event.set()
+    #machine.go_to_state(estadoEspera)
+
+def validacionComando(tipo):
+    commandTimer = th.Timer(10,commandTimerTask)
+    commandTimer.start()
+    while not command_timer_event.is_set():
+        if panel_event.is_set():
+            commandTimer.cancel() 
+            panel_event.clear()
+            command = panel_queue.get()[:4] 
+            print("COMANDO: " + command)
+            if tipo == "Usuario":
+                match command:
+                    case "#99#":
+                        return "Zona"
+                    case "#66#":
+                        return "Espera"#"Armado"
+                    case _:
+                        return "Espera" 
+            elif tipo == "Sistema":
+                match command:
+                    case "#33#":
+                        return "Espera"#"Usuario"
+                    case "#**#":
+                        return "Espera"#"Telefono"
+                    case _:
+                        return "Espera" 
+            else:
+                return "Espera"
+    command_timer_event.clear()    
+    return "Espera"
+        #machine.go_to_state("Espera")
+    #print("CONFIGURANDO")
+    
+
 ####    THREAD LOOP    ####
 def systemTask():
-
+    #cargar contras
+    pswd_file = open("pswd.txt",'r+')
+    line = pswd_file.read()
     machine = StateMachine()
     machine.add_state(estadoEspera())
     machine.add_state(subestadoBloqueo())
+    machine.add_state(subestadoZona())
+    machine.add_state(estadoAlarma())
     machine.go_to_state('Espera')
+
+    #machine.contraSistema = pswd_file.read()
+    machine.ContraSistema = line[0:4]
+    machine.ContraUsuario = line[4:8]
+    print(line[4:8])
+
     while True:
         if close_event.is_set():
             break
@@ -314,10 +410,13 @@ def systemTask():
 #eventos
 panel_event = th.Event()
 close_event = th.Event()
-
+panic_event = th.Event()
+incen_event = th.Event()
+command_timer_event = th.Event()
 #colas
 panel_queue = Queue()
 
+commandTimer = th.Timer(10,commandTimerTask)
 #main
 system_thread = th.Thread(target=systemTask)
 system_thread.start()
