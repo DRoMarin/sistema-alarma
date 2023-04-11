@@ -8,10 +8,10 @@ import threading as th
 ###################           PANEL FRONTAL           ###################
 #########################################################################
 panel = tk.Tk()
-panel_screen_buffer = tk.StringVar()
+screen_string = tk.StringVar()
 panel_buffer = Queue(maxsize = 9) #buffer interno del indicador del panel
 sensor_num = 16
-#panel_screen_buffer.set("--------")
+#screen_string.set("--------")
 
 button_labels = ["1","2","3","Esc"  ,
                  "4","5","6","Enter",
@@ -20,9 +20,9 @@ button_labels = ["1","2","3","Esc"  ,
 
 led_labels = ["MODO 0","MODO 1","BATT"]
 
-def updateScreen(input_buffer):
-    buffer = list(input_buffer.queue)
-    panel_screen_buffer.set(''.join(buffer))
+def updateScreen(input_queue):
+    buffer = list(input_queue.queue)
+    screen_string.set(''.join(buffer))
 
 def buttonCallback(button_pressed):
     label = button_labels[button_pressed]
@@ -42,7 +42,7 @@ def buttonCallback(button_pressed):
             command = ''.join(panel_buffer.queue)
             print("EN BUFFER: " + command)
             panel_queue.put(command)
-            panel_event.set()
+            keyboard_event.set()
             panel_buffer.queue.clear()
             updateScreen(panel_buffer)
         case "PANIC":
@@ -64,7 +64,7 @@ panel_screen_frame = tk.LabelFrame(panel, height = 130,borderwidth = 3,highlight
 panel_screen_frame.grid(row = 0,column = 0,columnspan = 4,sticky = 'nsew')
 panel_screen_frame.pack_propagate(0)
 panel_screen = tk.Label(panel_screen_frame,
-                        textvariable = panel_screen_buffer,
+                        textvariable = screen_string,
                         font = ('Consolas',40))
 panel_screen.pack(side = "top")
 
@@ -214,7 +214,7 @@ class StateMachine(object):
 
         panic_event.clear()
         incen_event.clear()
-        panel_event.clear()
+        keyboard_event.clear()
 
         panel_buffer.queue.clear()
         panel_queue.queue.clear()
@@ -241,8 +241,8 @@ class estadoEspera(State):
     #    State.exit(self, machine)
     def update(self, machine):
         state_change = "Espera"
-        panel_event.wait()
-        panel_event.clear()
+        keyboard_event.wait()
+        keyboard_event.clear()
         command = panel_queue.get()[-4:] 
         print("RECIBIDO: " + command)
         if command == machine.ContraUsuario:
@@ -259,15 +259,15 @@ class estadoEspera(State):
             machine.ContraInvalidas = 0
             state_change = "Bloqueo"
 
-            print(state_change)
-            machine.go_to_state(state_change)
+        print(state_change)
+        machine.go_to_state(state_change)
          
 class subestadoArmado(State):
     @property
     def name(self):
         return "Armado"
     def update(self, machine):
-        panel_event.wait()
+        keyboard_event.wait()
         value = panel_queue.get()
         if len(value) >= 4:
             value = value[-4:] ##########
@@ -298,12 +298,12 @@ class subestadoZona(State):
                 panel_buffer.put(zona)
                 updateScreen(panel_buffer)
                 panel_buffer.queue.clear()
-                panel_event.wait()
+                keyboard_event.wait()
                 value = panel_queue.get()
                 if value in ["0","1"]:
                     zona = value    
                 newlines.append(num+zona+mode+"\n")
-                panel_event.clear()      
+                keyboard_event.clear()      
         with open("sensorcfg.txt",'w+') as sensorcfg:
             sensorcfg.writelines(newlines)
         machine.go_to_state("Espera")
@@ -313,7 +313,7 @@ class subestadoUsuario(State):
     def name(self):
         return "Usuario"
     def update(self, machine):
-        panel_event.wait()
+        keyboard_event.wait()
         value = panel_queue.get() ##########
         if not valorInvalido(value) and len(value) == 9:
             with open("syscfg.txt",'r+') as syscfg_file:
@@ -329,7 +329,7 @@ class subestadoTelefono(State):
     def name(self):
         return "Telefono"
     def update(self, machine):
-        panel_event.wait()
+        keyboard_event.wait()
         value = panel_queue.get() 
         if len(value) >= 8:
             value = value[-8:] 
@@ -361,7 +361,7 @@ class estadoArmado(State):
     #def exit(self, machine):
         #panel_buffer.queue.clear()
         #panel_queue.queue.clear()
-        #panel_event.clear()
+        #keyboard_event.clear()
     #    pass
     def update(self, machine):
         pass
@@ -376,19 +376,19 @@ class estadoAlarma(State):
     #def exit(self, machine):
         #panel_buffer.queue.clear()
         #panel_queue.queue.clear()
-        #panel_event.clear()
+        #keyboard_event.clear()
        #pass
     def update(self, machine):
-        if panel_event.is_set():
+        if keyboard_event.is_set():
             command = panel_queue.get()
             print(command)
-            panel_event.clear()
+            keyboard_event.clear()
             machine.go_to_state("Espera")
 
 def validacionComando(tipo):
     while True:
-        flag = panel_event.wait(timeout=10)
-        panel_event.clear()
+        flag = keyboard_event.wait(timeout=10)
+        keyboard_event.clear()
         if flag == False:
             print("TIEMPO")
             return "Espera"
@@ -417,6 +417,8 @@ def validacionComando(tipo):
 def valorInvalido(value):
     return any(item in value for item in ["#","*"])
   
+
+
 ####    THREAD LOOP    ####
 def systemTask():
     #cargar contras
@@ -455,7 +457,7 @@ def systemTask():
 
 #eventos
 close_event = th.Event() #cierre de la interfaz
-panel_event = th.Event() #introducir comando o teclas
+keyboard_event = th.Event() #introducir comando o teclas
 panic_event = th.Event() #boton panico
 incen_event = th.Event() #boton incendio
 #colas
