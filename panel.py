@@ -41,7 +41,7 @@ def buttonCallback(button_pressed):
             updateScreen(panel_buffer)
         case "Enter":
             command = ''.join(panel_buffer.queue)
-            print(command)
+            print("EN BUFFER: " + command)
             panel_queue.put(command)
             panel_event.set()
             panel_buffer.queue.clear()
@@ -239,7 +239,7 @@ class estadoEspera(State):
     #def exit(self, machine):
     #    State.exit(self, machine)
     def update(self, machine):
-        
+        state_change = "Espera"
         if panel_event.is_set():
             panel_event.clear()
             command = panel_queue.get()[:4] 
@@ -279,13 +279,27 @@ class subestadoZona(State):
     @property
     def name(self):
         return "Zona"
-    #def enter(self, machine):
-    #    State.enter(self, machine)
-    #def exit(self, machine):
-    #    State.exit(self, machine)
     def update(self, machine):
-        #TBD
-        pass    
+        newlines = []
+        with open("sensorcfg.txt",'r') as sensorcfg:
+            for line in sensorcfg:
+                num = line[:2]
+                zona = line[2]
+                mode = line[3]
+                panel_buffer.put(num)
+                panel_buffer.put("-")
+                panel_buffer.put(zona)
+                updateScreen(panel_buffer)
+                panel_buffer.queue.clear()
+                panel_event.wait()
+                value = panel_queue.get()
+                if value in ["0","1"]:
+                    zona = value    
+                newlines.append(num+zona+mode+"\n")
+                panel_event.clear()      
+        with open("sensorcfg.txt",'w+') as sensorcfg:
+            sensorcfg.writelines(newlines)
+        machine.go_to_state("Espera")
 
 class subestadoUsuario(State):
     @property
@@ -380,10 +394,8 @@ def validacionComando(tipo):
                 return "Espera"
     command_timer_event.clear()    
     return "Espera"
-        #machine.go_to_state("Espera")
-    #print("CONFIGURANDO")
-    
 
+    
 ####    THREAD LOOP    ####
 def systemTask():
     #cargar contras
