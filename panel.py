@@ -199,6 +199,9 @@ class StateMachine(object):
 
         self.ContraUsuario = ""
         self.ContraSistema = ""
+        self.ClaveArmado = ""
+        self.NumeroUsuario = ""
+        self.TelefonoAgencia = ""
 
     def add_state(self,state):
         self.states[state.name] = state
@@ -242,7 +245,7 @@ class estadoEspera(State):
         state_change = "Espera"
         if panel_event.is_set():
             panel_event.clear()
-            command = panel_queue.get()[:4] 
+            command = panel_queue.get()[-4:] 
             print("RECIBIDO: " + command)
 
             if command == machine.ContraUsuario:
@@ -262,18 +265,25 @@ class estadoEspera(State):
             print(state_change)
             machine.go_to_state(state_change)
          
-
 class subestadoArmado(State):
     @property
     def name(self):
         return "Armado"
-    #def enter(self, machine):
-    #    State.enter(self, machine)
-    #def exit(self, machine):
-    #    State.exit(self, machine)
     def update(self, machine):
-        #TBD
-        pass
+        panel_event.wait()
+        value = panel_queue.get()
+        if len(value) >= 4:
+            value = value[-4:] ##########
+            if not valorInvalido(value):
+                with open("pswd.txt",'r+') as pswd_file:
+                    machine.ClaveArmado = value
+                    print(machine.ContraSistema
+                        +machine.ContraUsuario
+                        +machine.ClaveArmado)
+                    pswd_file.writelines(machine.ContraSistema
+                                         +machine.ContraUsuario
+                                         +machine.ClaveArmado)
+        machine.go_to_state("Espera")    
         
 class subestadoZona(State):
     @property
@@ -305,25 +315,34 @@ class subestadoUsuario(State):
     @property
     def name(self):
         return "Usuario"
-    #def enter(self, machine):
-    #    State.enter(self, machine)
-    #def exit(self, machine):
-    #    State.exit(self, machine)
     def update(self, machine):
-        #TBD
-        pass
+        panel_event.wait()
+        value = panel_queue.get() ##########
+        if not valorInvalido(value) and len(value) == 9:
+            with open("syscfg.txt",'r+') as syscfg_file:
+                machine.NumeroUsuario = value
+                print(machine.NumeroUsuario
+                    +machine.TelefonoAgencia)
+                syscfg_file.writelines(machine.NumeroUsuario
+                                     +machine.TelefonoAgencia)
+        machine.go_to_state("Espera")
         
 class subestadoTelefono(State):
     @property
     def name(self):
         return "Telefono"
-    #def enter(self, machine):
-    #    State.enter(self, machine)
-    #def exit(self, machine):
-    #    State.exit(self, machine)
     def update(self, machine):
-        #TBD
-        pass       
+        panel_event.wait()
+        if len(value) >= 8:
+            value = value[-8:] ##########
+            if not valorInvalido(value):
+                with open("syscfg.txt",'r+') as syscfg_file:
+                    machine.TelefonoAgencia = value
+                    print(machine.NumeroUsuario
+                        +machine.TelefonoAgencia)
+                    syscfg_file.writelines(machine.NumeroUsuario
+                                         +machine.TelefonoAgencia)
+        machine.go_to_state("Espera")     
 
 class subestadoBloqueo(State):
     @property
@@ -372,22 +391,22 @@ def validacionComando(tipo):
         if panel_event.is_set():
             commandTimer.cancel() 
             panel_event.clear()
-            command = panel_queue.get()[:4] 
+            command = panel_queue.get()[-4:] 
             print("COMANDO: " + command)
             if tipo == "Usuario":
                 match command:
                     case "#99#":
                         return "Zona"
                     case "#66#":
-                        return "Espera"#"Armado"
+                        return "Armado"
                     case _:
                         return "Espera" 
             elif tipo == "Sistema":
                 match command:
                     case "#33#":
-                        return "Espera"#"Usuario"
+                        return "Usuario"
                     case "#**#":
-                        return "Espera"#"Telefono"
+                        return "Telefono"
                     case _:
                         return "Espera" 
             else:
@@ -395,23 +414,38 @@ def validacionComando(tipo):
     command_timer_event.clear()    
     return "Espera"
 
+def valorInvalido(value):
+    return any(item in value for item in ["#","*"])
+
     
 ####    THREAD LOOP    ####
 def systemTask():
     #cargar contras
-    pswd_file = open("pswd.txt",'r+')
-    line = pswd_file.read()
+    
+    with open("pswd.txt",'r+') as pswd_file:
+        pswd = pswd_file.read()
+    with open("syscfg.txt",'r+') as syscfg_file:
+        syscfg = syscfg_file.read()
+
     machine = StateMachine()
     machine.add_state(estadoEspera())
     machine.add_state(subestadoBloqueo())
     machine.add_state(subestadoZona())
+    machine.add_state(subestadoArmado())
+    machine.add_state(subestadoUsuario())
     machine.add_state(estadoAlarma())
     machine.go_to_state('Espera')
 
     #machine.contraSistema = pswd_file.read()
-    machine.ContraSistema = line[0:4]
-    machine.ContraUsuario = line[4:8]
-    print(line[4:8])
+    machine.ContraSistema = pswd[0:4]
+    machine.ContraUsuario = pswd[4:8]
+    machine.ClaveArmado = pswd[8:12]
+
+    machine.NumeroUsuario = syscfg[:9]
+    machine.TelefonoAgencia = syscfg[9:17]
+
+    print(machine.ContraUsuario)
+    print(machine.TelefonoAgencia)
 
     while True:
         if close_event.is_set():
