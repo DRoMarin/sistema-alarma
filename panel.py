@@ -333,8 +333,9 @@ class subestadoTelefono(State):
         return "Telefono"
     def update(self, machine):
         panel_event.wait()
+        value = panel_queue.get() 
         if len(value) >= 8:
-            value = value[-8:] ##########
+            value = value[-8:] 
             if not valorInvalido(value):
                 with open("syscfg.txt",'r+') as syscfg_file:
                     machine.TelefonoAgencia = value
@@ -359,6 +360,21 @@ class subestadoBloqueo(State):
         time.sleep(5) #TBD: CAMBIAR A 5 MIN
         machine.go_to_state("Espera")
 ## FIN SUPERESTADO INACTIVO
+
+
+class estadoArmado(State):
+    @property
+    def name(self):
+        return "Armado"
+    #def enter(self, machine):
+    #    State.enter(self, machine)
+    #def exit(self, machine):
+        #panel_buffer.queue.clear()
+        #panel_queue.queue.clear()
+        #panel_event.clear()
+    #    pass
+    def update(self, machine):
+        pass
 
 class estadoAlarma(State):
     @property
@@ -388,29 +404,29 @@ def validacionComando(tipo):
     commandTimer = th.Timer(10,commandTimerTask)
     commandTimer.start()
     while not command_timer_event.is_set():
-        if panel_event.is_set():
-            commandTimer.cancel() 
-            panel_event.clear()
-            command = panel_queue.get()[-4:] 
-            print("COMANDO: " + command)
-            if tipo == "Usuario":
-                match command:
-                    case "#99#":
-                        return "Zona"
-                    case "#66#":
-                        return "Armado"
-                    case _:
-                        return "Espera" 
-            elif tipo == "Sistema":
-                match command:
-                    case "#33#":
-                        return "Usuario"
-                    case "#**#":
-                        return "Telefono"
-                    case _:
-                        return "Espera" 
-            else:
-                return "Espera"
+        panel_event.wait()
+        panel_event.clear()
+        commandTimer.cancel() 
+        command = panel_queue.get()[-4:] 
+        print("COMANDO: " + command)
+        if tipo == "Usuario":
+            match command:
+                case "#99#":
+                    return "Zona"
+                case "#66#":
+                    return "Armado"
+                case _:
+                    return "Espera" 
+        elif tipo == "Sistema":
+            match command:
+                case "#33#":
+                    return "Usuario"
+                case "#**#":
+                    return "Telefono"
+                case _:
+                    return "Espera" 
+        else:
+            return "Espera"
     command_timer_event.clear()    
     return "Espera"
 
