@@ -11,6 +11,7 @@ panel = tk.Tk()
 screen_string = tk.StringVar()
 panel_buffer = Queue(maxsize = 9) #buffer interno del indicador del panel
 sensor_num = 16
+sensor_buffer = ["0xfff3c000"]*16
 #screen_string.set("--------")
 
 button_labels = ["1","2","3","Esc"  ,
@@ -52,8 +53,10 @@ def buttonCallback(button_pressed):
            
 def sensorCallback(sensor_pressed):
     #TBD: AGREGAR FUNCIONES SISTEMA
+    sensor_buffer[sensor_pressed] = "0x55596aaa"
     print(sensor_pressed)
-
+    sensor_event.set()
+    
 ##### configuracion ventana principal
 panel.title('PANEL SIMULADOR')
 #tamaño
@@ -240,24 +243,29 @@ class estadoEspera(State):
     #def exit(self, machine):
     #    State.exit(self, machine)
     def update(self, machine):
+        
         state_change = "Espera"
         keyboard_event.wait()
         keyboard_event.clear()
-        command = panel_queue.get()[-4:] 
-        print("RECIBIDO: " + command)
-        if command == machine.ContraUsuario:
-            machine.ContraInvalidas = 0
-            print("CONTRASEÑA USUARIO VALIDA")
-            state_change = validacionComando("Usuario")
-        elif command == machine.ContraSistema:
-            machine.ContraInvalidas = 0
-            print("CONTRASEÑA SISTEMA VALIDA")
-            state_change = validacionComando("Sistema")
-        elif machine.ContraInvalidas < 2:
-            machine.ContraInvalidas += 1
+        
+        if close_event.is_set():
+            print("LEIDO") 
         else:
-            machine.ContraInvalidas = 0
-            state_change = "Bloqueo"
+            command = panel_queue.get()[-4:]
+            print("RECIBIDO: " + command)
+            if command == machine.ContraUsuario:
+                machine.ContraInvalidas = 0
+                print("CONTRASEÑA USUARIO VALIDA")
+                state_change = validacionComando("Usuario",machine)
+            elif command == machine.ContraSistema:
+                machine.ContraInvalidas = 0
+                print("CONTRASEÑA SISTEMA VALIDA")
+                state_change = validacionComando("Sistema",machine)
+            elif machine.ContraInvalidas < 2:
+                machine.ContraInvalidas += 1
+            else:
+                machine.ContraInvalidas = 0
+                state_change = "Bloqueo"
 
         print(state_change)
         machine.go_to_state(state_change)
@@ -269,17 +277,15 @@ class subestadoArmado(State):
     def update(self, machine):
         keyboard_event.wait()
         value = panel_queue.get()
-        if len(value) >= 4:
-            value = value[-4:] ##########
-            if not valorInvalido(value):
-                with open("pswd.txt",'r+') as pswd_file:
-                    machine.ClaveArmado = value
-                    print(machine.ContraSistema
-                        +machine.ContraUsuario
-                        +machine.ClaveArmado)
-                    pswd_file.writelines(machine.ContraSistema
-                                         +machine.ContraUsuario
-                                         +machine.ClaveArmado)
+        if len(value) == 4 and not valorInvalido(value):
+            with open("pswd.txt",'r+') as pswd_file:
+                machine.ClaveArmado = value
+                print(machine.ContraSistema
+                    +machine.ContraUsuario
+                    +machine.ClaveArmado)
+                pswd_file.writelines(machine.ContraSistema
+                                     +machine.ContraUsuario
+                                     +machine.ClaveArmado)
         machine.go_to_state("Espera")    
         
 class subestadoZona(State):
@@ -316,12 +322,8 @@ class subestadoUsuario(State):
         keyboard_event.wait()
         value = panel_queue.get() ##########
         if not valorInvalido(value) and len(value) == 9:
-            with open("syscfg.txt",'r+') as syscfg_file:
-                machine.NumeroUsuario = value
-                print(machine.NumeroUsuario
-                    +machine.TelefonoAgencia)
-                syscfg_file.writelines(machine.NumeroUsuario
-                                     +machine.TelefonoAgencia)
+            machine.NumeroUsuario = value
+            actualizarSysCfg(machine)
         machine.go_to_state("Espera")
         
 class subestadoTelefono(State):
@@ -331,15 +333,9 @@ class subestadoTelefono(State):
     def update(self, machine):
         keyboard_event.wait()
         value = panel_queue.get() 
-        if len(value) >= 8:
-            value = value[-8:] 
-            if not valorInvalido(value):
-                with open("syscfg.txt",'r+') as syscfg_file:
-                    machine.TelefonoAgencia = value
-                    print(machine.NumeroUsuario
-                        +machine.TelefonoAgencia)
-                    syscfg_file.writelines(machine.NumeroUsuario
-                                         +machine.TelefonoAgencia)
+        if not valorInvalido(value)and len(value) == 8:
+            machine.TelefonoAgencia = value
+            actualizarSysCfg(machine)    
         machine.go_to_state("Espera")     
 
 class subestadoBloqueo(State):
@@ -364,7 +360,12 @@ class estadoArmado(State):
         #keyboard_event.clear()
     #    pass
     def update(self, machine):
-        pass
+        time.sleep(0.5)
+        with sensor_lock:
+            with open("sensorcfg.txt",'r') as sensorcfg:
+                for line in sensorcfg.readlines():
+                    if line[3] == "1":
+                        machine.go_to_state("Alarma")
 
 class estadoAlarma(State):
     @property
@@ -385,21 +386,30 @@ class estadoAlarma(State):
             keyboard_event.clear()
             machine.go_to_state("Espera")
 
-def validacionComando(tipo):
+def validacionComando(tipo,machine):
     while True:
         flag = keyboard_event.wait(timeout=10)
         keyboard_event.clear()
         if flag == False:
             print("TIEMPO")
             return "Espera"
+        elif close_event.is_set(): #Necesario para simulacion
+            return "Espera"
         #commandTimer.cancel() 
         command = panel_queue.get()[-4:] 
         print("COMANDO: " + command)
+        print(machine.ClaveArmado)
         if tipo == "Usuario":
             match command:
                 case "#99#":
                     return "Zona"
                 case "#66#":
+                    return "Armado"
+                case "*0*0":
+                    print("CLAVE ARMADO")
+                    return "Armado"
+                case "*1*1":
+                    print("CLAVE ARMADO")
                     return "Armado"
                 case _:
                     return "Espera" 
@@ -417,16 +427,28 @@ def validacionComando(tipo):
 def valorInvalido(value):
     return any(item in value for item in ["#","*"])
   
-
+def actualizarSysCfg(machine):
+    with open("syscfg.txt",'r+') as syscfg_file:
+        print(machine.NumeroUsuario
+              +machine.TelefonoAgencia)
+        syscfg_file.writelines(machine.NumeroUsuario
+                               +machine.TelefonoAgencia)   
 
 ####    THREAD LOOP    ####
 def systemTask():
     #cargar contras
-    
+    pswd = ""
+    syscfg = ""
+    sensorcfg = ""
     with open("pswd.txt",'r+') as pswd_file:
         pswd = pswd_file.read()
     with open("syscfg.txt",'r+') as syscfg_file:
         syscfg = syscfg_file.read()
+    with open("sensorcfg.txt",'r') as sensorcfg_file: 
+        sensorcfg = sensorcfg_file.readlines()
+    with open("sensorcfg.txt",'w+') as sensorcfg_file: 
+        for idx in range(16):
+            sensorcfg_file.write(str(idx).zfill(2)+sensorcfg[idx][2]+"0\n") 
 
     machine = StateMachine()
     machine.add_state(estadoEspera())
@@ -435,6 +457,7 @@ def systemTask():
     machine.add_state(subestadoArmado())
     machine.add_state(subestadoUsuario())
     machine.add_state(subestadoTelefono())
+    machine.add_state(estadoArmado())
     machine.add_state(estadoAlarma())
     machine.go_to_state('Espera')
 
@@ -455,17 +478,43 @@ def systemTask():
         machine.update()
     print("CERRANDO")
 
+
+def sensorTask():
+    while True:
+        if close_event.is_set():
+            break
+        sensor_event.wait()
+        sensor_event.clear()
+        with sensor_lock:
+            lines = []
+            with open("sensorcfg.txt",'r+') as sensorcfg: 
+                lines = sensorcfg.readlines()
+                for idx in range(16):
+                    if sensor_buffer[idx] == "0x55596aaa":
+                        zona = lines[idx][2]
+                        lines[idx] = str(idx).zfill(2)+zona+"1\n"     
+            with open("sensorcfg.txt",'w+') as sensorcfg:     
+                sensorcfg.writelines(lines)
+
+
 #eventos
 close_event = th.Event() #cierre de la interfaz
 keyboard_event = th.Event() #introducir comando o teclas
 panic_event = th.Event() #boton panico
 incen_event = th.Event() #boton incendio
+sensor_event = th.Event()
 #colas
 panel_queue = Queue()#cola de datos para sistema
-
+#mutex
+sensor_lock = th.Lock()
 #main
 system_thread = th.Thread(target=systemTask)
+sensor_thread = th.Thread(target=sensorTask)
+sensor_thread.start()
 system_thread.start()
 panel.mainloop()
 close_event.set()
+keyboard_event.set()
+sensor_event.set()
+sensor_thread.join()
 system_thread.join()
