@@ -10,6 +10,7 @@ import threading as th
 #########################################################################
 panel = tk.Tk()
 screen_string = tk.StringVar()
+slide_value = tk.DoubleVar()
 panel_buffer = Queue(maxsize = 9) #buffer interno del indicador del panel
 sensor_num = 16
 sensor_buffer = ["0xfff3c000"]*16
@@ -58,6 +59,8 @@ def sensorCallback(sensor_pressed):
     sensor_buffer[sensor_pressed] = "0x55596aaa"
     print(sensor_pressed)
     sensor_event.set()
+def llamadaCallback():
+    llamada_event.set()
     
 ##### configuracion ventana principal
 panel.title('PANEL SIMULADOR')
@@ -133,6 +136,21 @@ for sensor_idx in range(sensor_num):
     sensor.grid(column = (sensor_idx//4)+5, row = (sensor_idx % 4)+1)
     S_arr.append(sensor)
 
+boton_llamada = tk.Button(panel,
+                       text = "CONTESTAR",
+                       width = 100, height = 50,
+                       padx = 0,pady = 0,
+                       image = pixel, 
+                       compound ='center',
+                       highlightthickness = 5,
+                       borderwidth = 3,
+                       command = llamadaCallback)
+
+boton_llamada.grid(column = 7, row = 0,columnspan=2)
+
+
+dial_voltaje = tk.Scale(panel, from_=0, to= 220,orient="horizontal",variable=slide_value)
+dial_voltaje.grid(column = 5, row = 0, columnspan=2)
 #########################################################################
 #####################       MAQUINA DE ESTADOS      #####################
 #########################################################################
@@ -211,6 +229,8 @@ class StateMachine(object):
         self.ClaveArmado = ""
         self.NumeroUsuario = ""
         self.TelefonoAgencia = ""
+        self.ConteoBatNeg = 0
+        self.ConteoBatPos = 0
 
     def add_state(self,state):
         self.states[state.name] = state
@@ -245,7 +265,17 @@ class StateMachine(object):
                 self.AccionBocina = bocina["Intermitente"]
 
                 self.go_to_state("Alarma") 
-
+            #print(slide_value.get())
+            if slide_value.get() < 110.0 and self.ConteoBatNeg < 5:
+                self.ConteoBatNeg += 1
+                if self.ConteoBatNeg == 5:
+                    led_arr[2][1].configure(bg='red')
+                    self.ConteoBatPos = 0
+            elif slide_value.get() > 110.0 and self.ConteoBatPos < 30:
+                self.ConteoBatPos += 1
+                if self.ConteoBatPos == 30:
+                    led_arr[2][1].configure(bg='gray')
+                    self.ConteoBatNeg = 0
             self.state.update(self)
             time.sleep(0.1)
 
@@ -264,9 +294,9 @@ class estadoEspera(State):
     def update(self, machine):
         
         state_change = "Espera"
-        keyboard_event.wait()
-        keyboard_event.clear()
         if not panel_queue.empty():
+            keyboard_event.wait()
+            keyboard_event.clear()
             command = panel_queue.get()[-4:]
             if command == machine.ContraUsuario:
                 machine.ContraInvalidas = 0
@@ -287,8 +317,9 @@ class estadoEspera(State):
             else:
                 machine.EstadoReportado = estados[state_change]
 
-        print(state_change)
-        machine.go_to_state(state_change)
+        #print(state_change)
+        if state_change != "Espera":
+            machine.go_to_state(state_change)
          
 class subestadoCodArmado(State):
     @property
@@ -428,7 +459,6 @@ class estadoAlarma(State):
             if machine.TipoAlarma == alarma["Allanamiento"] and machine.ModoArmado == modo["Zona 1"]:
                 alarmaTimer = th.Timer(5, alarmaTimerTask)
                 alarmaTimer.start()
-                pass
         elif machine.AccionBocina == bocina["Permanente"]:
             PWM_queue.put(100)
     def update(self, machine):
@@ -438,7 +468,22 @@ class estadoAlarma(State):
             PWM_queue.put(100)
             machine.AccionBocina = bocina["Permanente"]
 
-        if keyboard_event.is_set():
+        if machine.SolicitudLlamada == llamada["Presente"]:
+            machine.SolicitudLlamada = llamada["Espera"]
+            print("Marcando... " + machine.TelefonoAgencia)
+        elif machine.SolicitudLlamada == llamada["Espera"] and llamada_event.is_set():
+            #machine.SolicitudLlamada = llamada["No Presente"]
+            if machine.TipoAlarma == alarma["Panico"]:
+                print("PANICO", machine.NumeroUsuario) #TTS
+                
+            elif machine.TipoAlarma == alarma["Incendio"]:
+                print("INCENDIO", machine.NumeroUsuario)
+
+            elif machine.TipoAlarma == alarma["Allanamiento"]:
+                print(machine.NumeroUsuario)
+            time.sleep(1)
+
+        if keyboard_event.is_set() and not panel_queue.empty():
             keyboard_event.clear()
             command = panel_queue.get()[-4:]
             if command == machine.ClaveArmado:
@@ -452,15 +497,17 @@ class estadoAlarma(State):
 
 
 def validacionComando(tipo,machine):
+    command = ""
     while True:
         flag = keyboard_event.wait(timeout=10)
+        print("EVNETO")
         keyboard_event.clear()
         if flag == False:
             print("TIEMPO")
             return "Espera"
-        command = panel_queue.get()[-4:] 
+        elif flag == True and not panel_queue.empty():
+            command = panel_queue.get()[-4:] 
         print("COMANDO: " + command)
-        print(machine.ClaveArmado)
         if tipo == "Usuario":
             match command:
                 case "#99#":
@@ -540,6 +587,7 @@ def systemTask():
     print(machine.TelefonoAgencia)
 
     while True:
+        print("actualizando")
         if close_event.is_set():
             break
         machine.update()
@@ -585,7 +633,7 @@ panic_event = th.Event() #boton panico
 incen_event = th.Event() #boton incendio
 sensor_event = th.Event()
 alarma_event = th.Event()
-
+llamada_event = th.Event()
 
 #colas
 PWM = 0
