@@ -31,7 +31,7 @@ def buttonCallback(button_pressed):
     label = button_labels[button_pressed]
     match label:
         case index if label in ["1","2","3","4","5","6","7","8","9","*","0","#"]:
-            print(label)
+            #print(label)
             if panel_buffer.full():
                 panel_buffer.get()
                 panel_buffer.put(label)
@@ -43,7 +43,7 @@ def buttonCallback(button_pressed):
             updateScreen(panel_buffer)
         case "Enter":
             command = ''.join(panel_buffer.queue)
-            print("EN BUFFER: " + command)
+            #print("EN BUFFER: " + command)
             panel_queue.put(command)
             keyboard_event.set()
             panel_buffer.queue.clear()
@@ -57,7 +57,7 @@ def buttonCallback(button_pressed):
            
 def sensorCallback(sensor_pressed):
     sensor_buffer[sensor_pressed] = "0x55596aaa"
-    print(sensor_pressed)
+    #print(sensor_pressed)
     sensor_event.set()
 def llamadaCallback():
     llamada_event.set()
@@ -500,14 +500,13 @@ def validacionComando(tipo,machine):
     command = ""
     while True:
         flag = keyboard_event.wait(timeout=10)
-        print("EVNETO")
         keyboard_event.clear()
         if flag == False:
             print("TIEMPO")
             return "Espera"
         elif flag == True and not panel_queue.empty():
             command = panel_queue.get()[-4:] 
-        print("COMANDO: " + command)
+        #print("COMANDO: " + command)
         if tipo == "Usuario":
             match command:
                 case "#99#":
@@ -515,11 +514,11 @@ def validacionComando(tipo,machine):
                 case "#66#":
                     return "CodArmado"
                 case "*0*0":
-                    print("CLAVE ARMADO")
+                    print("ARMADO MODO 0")
                     machine.ModoArmado = modo["Zona 0"]
                     return "Armado"
                 case "*1*1":
-                    print("CLAVE ARMADO")
+                    print("ARMADO MODO 1")
                     machine.ModoArmado = modo["Zona 1"]
                     return "Armado"
                 case _:
@@ -545,7 +544,6 @@ def actualizarSysCfg(machine):
         syscfg_file.writelines(machine.NumeroUsuario
                                +machine.TelefonoAgencia)   
 def alarmaTimerTask():
-    print("NO METIO NADA")
     alarma_event.set()
 
 ####    THREAD LOOP    ####
@@ -587,7 +585,6 @@ def systemTask():
     print(machine.TelefonoAgencia)
 
     while True:
-        print("actualizando")
         if close_event.is_set():
             break
         machine.update()
