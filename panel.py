@@ -49,8 +49,10 @@ def buttonCallback(button_pressed):
             updateScreen(panel_buffer)
         case "PANIC":
             panic_event.set()
+            keyboard_event.set()
         case "INCEN":
             incen_event.set()
+            keyboard_event.set()
            
 def sensorCallback(sensor_pressed):
     sensor_buffer[sensor_pressed] = "0x55596aaa"
@@ -220,8 +222,8 @@ class StateMachine(object):
         self.state = self.states[state_name]
         print('ENTRANDO %s' %(self.state.name))
 
-        panic_event.clear()
-        incen_event.clear()
+        #panic_event.clear()
+        #incen_event.clear()
         keyboard_event.clear()
 
         panel_buffer.queue.clear()
@@ -231,17 +233,19 @@ class StateMachine(object):
 
     def update(self):
         if self.state:
-            if (panic_event.is_set() or incen_event.is_set()) and self.state.name != "Alarma":
-                self.go_to_state("Alarma")
+            if (panic_event.is_set() or incen_event.is_set()):
                 self.EstadoReportado = estados["Alarma"]
+
                 if panic_event.is_set():
                     self.TipoAlarma = alarma["Panico"]
-                   
                 elif incen_event.is_set():
                     self.TipoAlarma = alarma["Incendio"]
 
                 self.SolicitudLlamada = llamada["Presente"]
                 self.AccionBocina = bocina["Intermitente"]
+
+                self.go_to_state("Alarma") 
+
             self.state.update(self)
             time.sleep(0.1)
 
@@ -262,12 +266,8 @@ class estadoEspera(State):
         state_change = "Espera"
         keyboard_event.wait()
         keyboard_event.clear()
-        
-        if close_event.is_set():
-            print("LEIDO") 
-        else:
+        if not panel_queue.empty():
             command = panel_queue.get()[-4:]
-            print("RECIBIDO: " + command)
             if command == machine.ContraUsuario:
                 machine.ContraInvalidas = 0
                 print("CONTRASEÑA USUARIO VALIDA")
@@ -300,9 +300,6 @@ class subestadoCodArmado(State):
         if len(value) == 4 and not valorInvalido(value):
             with open("pswd.txt",'r+') as pswd_file:
                 machine.ClaveArmado = value
-                print(machine.ContraSistema
-                    +machine.ContraUsuario
-                    +machine.ClaveArmado)
                 pswd_file.writelines(machine.ContraSistema
                                      +machine.ContraUsuario
                                      +machine.ClaveArmado)
@@ -390,18 +387,19 @@ class estadoArmado(State):
         panel_buffer.queue.clear()
         updateScreen(panel_buffer)
         State.enter(self, machine)
+
     def update(self, machine):
         time.sleep(0.5)
         with sensor_lock:
+            zona = None
+            if machine.ModoArmado == modo["Zona 0"]:
+                zona = 0
+            elif machine.ModoArmado == modo["Zona 1"]:
+                zona = 1
             with open("sensorcfg.txt",'r') as sensorcfg:
                 for line in sensorcfg.readlines():
-                    zona = None
-                    if machine.ModoArmado == modo["Zona 0"]:
-                        zona = 0
-                    elif machine.ModoArmado == modo["Zona 1"]:
-                        zona = 1
-                    if line[3] == "1" and (line[2] == zona or zona == 0):
-                        machine.go_to_state("Alarma")
+                    #time.sleep(0.5)      
+                    if line[3] == "1" and (line[2] == str(zona) or zona == "0"):
                         machine.EstadoReportado = estados["Alarma"]
                         machine.TipoAlarma = alarma["Allanamiento"]
                         if zona == 1:
@@ -409,39 +407,49 @@ class estadoArmado(State):
                         elif zona == 0:
                             machine.AccionBocina = bocina["Permanente"]
                             machine.SolicitudLlamada = llamada["Presente"]
-                           
-        if keyboard_event.is_set():
+                        machine.go_to_state("Alarma")
+        if keyboard_event.is_set() and not panel_queue.empty():
             keyboard_event.clear()
             command = panel_queue.get()[-4:]
-            print("CLAVE: " + command)
             if command == machine.ClaveArmado:
-                machine.go_to_state("Espera")
                 machine.EstadoReportado = estados["Inactivo"]
                 machine.SubestadoActual = subestados["Espera"]
+                machine.go_to_state("Espera")
 
 class estadoAlarma(State):
     @property
     def name(self):
         return "Alarma"
     def enter(self,machine):
-        alarma_thread = th.Thread(target=reproducirAlarma) 
-        alarma_thread.start()
+        panic_event.clear()
+        incen_event.clear()
+        if machine.AccionBocina == bocina["Intermitente"]:
+            PWM_queue.put(50)
+            if machine.TipoAlarma == alarma["Allanamiento"] and machine.ModoArmado == modo["Zona 1"]:
+                alarmaTimer = th.Timer(5, alarmaTimerTask)
+                alarmaTimer.start()
+                pass
+        elif machine.AccionBocina == bocina["Permanente"]:
+            PWM_queue.put(100)
     def update(self, machine):
-        if machine.ModoArmado == modo["Zona 0"]:
-            zona = 0
-        elif machine.ModoArmado == modo["Zona 1"]:
-            zona = 1
-        
+
+        if alarma_event.is_set():
+            alarma_event.clear()
+            PWM_queue.put(100)
+            machine.AccionBocina = bocina["Permanente"]
+
         if keyboard_event.is_set():
             keyboard_event.clear()
             command = panel_queue.get()[-4:]
-            print("CLAVE: " + command)
             if command == machine.ClaveArmado:
+                PWM_queue.put(0)
                 machine.go_to_state("Espera")
                 machine.EstadoReportado = estados["Inactivo"]
                 machine.TipoAlarma = alarma["NA"]
+                machine.AccionBocina = bocina["Apagado"]
                 machine.SolicitudLlamada = llamada["No Presente"]
                 machine.SubestadoActual = subestados["Espera"]
+
 
 def validacionComando(tipo,machine):
     while True:
@@ -450,9 +458,6 @@ def validacionComando(tipo,machine):
         if flag == False:
             print("TIEMPO")
             return "Espera"
-        elif close_event.is_set(): #Necesario para simulacion
-            return "Espera"
-        #commandTimer.cancel() 
         command = panel_queue.get()[-4:] 
         print("COMANDO: " + command)
         print(machine.ClaveArmado)
@@ -492,8 +497,9 @@ def actualizarSysCfg(machine):
               +machine.TelefonoAgencia)
         syscfg_file.writelines(machine.NumeroUsuario
                                +machine.TelefonoAgencia)   
-
-      
+def alarmaTimerTask():
+    print("NO METIO NADA")
+    alarma_event.set()
 
 ####    THREAD LOOP    ####
 def systemTask():
@@ -558,17 +564,17 @@ def sensorTask():
                 sensorcfg.writelines(lines)
 
 def reproducirAlarma():
-        alarma_event.wait()
-        alarma_event.clear()
-        long_active = False
+        PWM = 0
         while(True):
+            if not PWM_queue.empty():      
+                PWM = PWM_queue.get()
             if PWM == 50:
                 ps.playsound('beep.mp3')
                 time.sleep(1)
-            elif PWM == 100 and long_active == False:
-                ps.playsound('longbeep.mp3', block=False)
-                long_active = True
-            if alarma_event.is_set():
+            elif PWM == 100:
+                ps.playsound('beep.mp3', block=False)
+                time.sleep(0.5)
+            if close_event.is_set():
                 break
                 
 
@@ -579,21 +585,27 @@ panic_event = th.Event() #boton panico
 incen_event = th.Event() #boton incendio
 sensor_event = th.Event()
 alarma_event = th.Event()
-PWM = 0
+
+
 #colas
+PWM = 0
+PWM_queue = Queue()
 panel_queue = Queue()#cola de datos para sistema
 #mutex
 sensor_lock = th.Lock()
 #main
 system_thread = th.Thread(target=systemTask)
 sensor_thread = th.Thread(target=sensorTask)
-#alarma_thread = th.Thread(target=reproducirAlarma)
+alarma_thread = th.Thread(target=reproducirAlarma)
 
 sensor_thread.start()
 system_thread.start()
+alarma_thread.start()
+
 panel.mainloop()
 close_event.set()
 keyboard_event.set()
 sensor_event.set()
 sensor_thread.join()
+alarma_thread.join()
 system_thread.join()
