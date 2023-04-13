@@ -1,5 +1,6 @@
 import tkinter as tk
 from queue import Queue
+import playsound as ps
 import time
 import threading as th
 
@@ -52,7 +53,6 @@ def buttonCallback(button_pressed):
             incen_event.set()
            
 def sensorCallback(sensor_pressed):
-    #TBD: AGREGAR FUNCIONES SISTEMA
     sensor_buffer[sensor_pressed] = "0x55596aaa"
     print(sensor_pressed)
     sensor_event.set()
@@ -79,52 +79,57 @@ led_screen_frame = tk.LabelFrame(panel_screen_frame,
 led_screen_frame.pack(side="bottom")
 
 #Indicadores LED
-led_arr = [[0]*2]*len(led_labels)
+led_arr = []
 for ind_idx in range(len(led_labels)):
-    led_arr[ind_idx][0] = tk.Label(led_screen_frame,
-                                   text= led_labels[ind_idx],
-                                   font = ('Consolas',10))
+    pair = [0,0]
+    pair[0]= tk.Label(led_screen_frame,
+                      text= led_labels[ind_idx],
+                      font = ('Consolas',10))
     
-    led_arr[ind_idx][1] = tk.Canvas(led_screen_frame,
-                                    width = 20,
-                                    height = 20,
-                                    bg = 'gray')
+
+    pair[1]= tk.Canvas(led_screen_frame,
+                       width = 20,
+                       height = 20,
+                       bg = 'gray')
     
-    led_arr[ind_idx][0].grid(row = 0, column = ind_idx*2)
-    led_arr[ind_idx][1].grid(row = 0, column = ind_idx*2+1)
+    pair[0].grid(row = 0, column = ind_idx*2)
+    pair[1].grid(row = 0, column = ind_idx*2+1)
+    led_arr.append(pair)
 
 
 #array de botones
 pixel = tk.PhotoImage(width = 1,height = 1)
-B_arr = [0]*len(button_labels)
+B_arr = []
 for label_idx in range(len(button_labels)):
-    B_arr[label_idx] = tk.Button(panel,
-                                 text = button_labels[label_idx],
-                                 width = 50, height = 50,
-                                 padx = 0,pady = 0,
-                                 image = pixel, 
-                                 compound = 'center',
-                                 highlightthickness = 5,
-                                 borderwidth = 3,
-                                 command = lambda i = label_idx: buttonCallback(i))
-    B_arr[label_idx].grid(row = (label_idx//4)+1, column = (label_idx % 4),sticky="ew")
+    button = tk.Button(panel,
+                       text = button_labels[label_idx],
+                       width = 50, height = 50,
+                       padx = 0,pady = 0,
+                       image = pixel, 
+                       compound = 'center',
+                       highlightthickness = 5,
+                       borderwidth = 3,
+                       command = lambda i = label_idx: buttonCallback(i))
+    button.grid(row = (label_idx//4)+1, column = (label_idx % 4),sticky="ew")
+    B_arr.append(button)
 
 spacing = tk.Label(panel,text="",font=('Consolas',40),width=2)
 spacing.grid(row=1, column=4)
 
 # Array de sensores
-S_arr = [0]*sensor_num
+S_arr = []
 for sensor_idx in range(sensor_num):
-    S_arr[sensor_idx] = tk.Button(panel,
-                                 text = str(sensor_idx),
-                                 width = 50, height = 50,
-                                 padx = 0,pady = 0,
-                                 image = pixel, 
-                                 compound ='center',
-                                 highlightthickness = 5,
-                                 borderwidth = 3,
-                                 command = lambda i = sensor_idx: sensorCallback(i))
-    S_arr[sensor_idx].grid(column = (sensor_idx//4)+5, row = (sensor_idx % 4)+1)
+    sensor = tk.Button(panel,
+                       text = str(sensor_idx),
+                       width = 50, height = 50,
+                       padx = 0,pady = 0,
+                       image = pixel, 
+                       compound ='center',
+                       highlightthickness = 5,
+                       borderwidth = 3,
+                       command = lambda i = sensor_idx: sensorCallback(i))
+    sensor.grid(column = (sensor_idx//4)+5, row = (sensor_idx % 4)+1)
+    S_arr.append(sensor)
 
 #########################################################################
 #####################       MAQUINA DE ESTADOS      #####################
@@ -138,7 +143,7 @@ estados = {
 }
 subestados = {
     "Zona":1,
-    "Armado":3,
+    "CodArmado":3,
     "Usuario":5,
     "Telefono":7,
     "Bloqueo":15,
@@ -226,9 +231,19 @@ class StateMachine(object):
 
     def update(self):
         if self.state:
-            if panic_event.is_set() or incen_event.is_set():
+            if (panic_event.is_set() or incen_event.is_set()) and self.state.name != "Alarma":
                 self.go_to_state("Alarma")
+                self.EstadoReportado = estados["Alarma"]
+                if panic_event.is_set():
+                    self.TipoAlarma = alarma["Panico"]
+                   
+                elif incen_event.is_set():
+                    self.TipoAlarma = alarma["Incendio"]
+
+                self.SolicitudLlamada = llamada["Presente"]
+                self.AccionBocina = bocina["Intermitente"]
             self.state.update(self)
+            time.sleep(0.1)
 
     def reset(self):
         pass
@@ -267,13 +282,18 @@ class estadoEspera(State):
                 machine.ContraInvalidas = 0
                 state_change = "Bloqueo"
 
+            if state_change in subestados:
+                machine.SubestadoActual = subestados[state_change]
+            else:
+                machine.EstadoReportado = estados[state_change]
+
         print(state_change)
         machine.go_to_state(state_change)
          
-class subestadoArmado(State):
+class subestadoCodArmado(State):
     @property
     def name(self):
-        return "Armado"
+        return "CodArmado"
     def update(self, machine):
         keyboard_event.wait()
         value = panel_queue.get()
@@ -286,7 +306,8 @@ class subestadoArmado(State):
                 pswd_file.writelines(machine.ContraSistema
                                      +machine.ContraUsuario
                                      +machine.ClaveArmado)
-        machine.go_to_state("Espera")    
+        machine.go_to_state("Espera")
+        machine.SubestadoActual = subestados["Espera"]
         
 class subestadoZona(State):
     @property
@@ -312,7 +333,8 @@ class subestadoZona(State):
                 keyboard_event.clear()      
         with open("sensorcfg.txt",'w+') as sensorcfg:
             sensorcfg.writelines(newlines)
-        machine.go_to_state("Espera")
+        machine.go_to_state("Espera") 
+        machine.SubestadoActual = subestados["Espera"]
 
 class subestadoUsuario(State):
     @property
@@ -324,7 +346,8 @@ class subestadoUsuario(State):
         if not valorInvalido(value) and len(value) == 9:
             machine.NumeroUsuario = value
             actualizarSysCfg(machine)
-        machine.go_to_state("Espera")
+        machine.go_to_state("Espera") 
+        machine.SubestadoActual = subestados["Espera"]
         
 class subestadoTelefono(State):
     @property
@@ -336,7 +359,8 @@ class subestadoTelefono(State):
         if not valorInvalido(value)and len(value) == 8:
             machine.TelefonoAgencia = value
             actualizarSysCfg(machine)    
-        machine.go_to_state("Espera")     
+        machine.go_to_state("Espera") 
+        machine.SubestadoActual = subestados["Espera"]
 
 class subestadoBloqueo(State):
     @property
@@ -345,6 +369,7 @@ class subestadoBloqueo(State):
     def update(self, machine):
         time.sleep(5) #TBD: CAMBIAR A 5 MIN
         machine.go_to_state("Espera")
+        machine.SubestadoActual = subestados["Espera"]
 ## FIN SUPERESTADO INACTIVO
 
 
@@ -352,39 +377,71 @@ class estadoArmado(State):
     @property
     def name(self):
         return "Armado"
-    #def enter(self, machine):
-    #    State.enter(self, machine)
-    #def exit(self, machine):
-        #panel_buffer.queue.clear()
-        #panel_queue.queue.clear()
-        #keyboard_event.clear()
-    #    pass
+    def enter(self, machine):
+        zona = None
+        if machine.ModoArmado == modo["Zona 0"]:
+            zona = 0
+        elif machine.ModoArmado == modo["Zona 1"]:
+            zona = 1
+        led_arr[zona][1].configure(bg='red')
+        panel_buffer.put("ARMD")
+        updateScreen(panel_buffer)
+        time.sleep(5)
+        panel_buffer.queue.clear()
+        updateScreen(panel_buffer)
+        State.enter(self, machine)
     def update(self, machine):
         time.sleep(0.5)
         with sensor_lock:
             with open("sensorcfg.txt",'r') as sensorcfg:
                 for line in sensorcfg.readlines():
-                    if line[3] == "1":
+                    zona = None
+                    if machine.ModoArmado == modo["Zona 0"]:
+                        zona = 0
+                    elif machine.ModoArmado == modo["Zona 1"]:
+                        zona = 1
+                    if line[3] == "1" and (line[2] == zona or zona == 0):
                         machine.go_to_state("Alarma")
+                        machine.EstadoReportado = estados["Alarma"]
+                        machine.TipoAlarma = alarma["Allanamiento"]
+                        if zona == 1:
+                            machine.AccionBocina = bocina["Intermitente"]
+                        elif zona == 0:
+                            machine.AccionBocina = bocina["Permanente"]
+                            machine.SolicitudLlamada = llamada["Presente"]
+                           
+        if keyboard_event.is_set():
+            keyboard_event.clear()
+            command = panel_queue.get()[-4:]
+            print("CLAVE: " + command)
+            if command == machine.ClaveArmado:
+                machine.go_to_state("Espera")
+                machine.EstadoReportado = estados["Inactivo"]
+                machine.SubestadoActual = subestados["Espera"]
 
 class estadoAlarma(State):
     @property
     def name(self):
         return "Alarma"
-    #def enter(self, machine):
-        #State.enter(self, machine)
-        #print("Alarma")
-    #def exit(self, machine):
-        #panel_buffer.queue.clear()
-        #panel_queue.queue.clear()
-        #keyboard_event.clear()
-       #pass
+    def enter(self,machine):
+        alarma_thread = th.Thread(target=reproducirAlarma) 
+        alarma_thread.start()
     def update(self, machine):
+        if machine.ModoArmado == modo["Zona 0"]:
+            zona = 0
+        elif machine.ModoArmado == modo["Zona 1"]:
+            zona = 1
+        
         if keyboard_event.is_set():
-            command = panel_queue.get()
-            print(command)
             keyboard_event.clear()
-            machine.go_to_state("Espera")
+            command = panel_queue.get()[-4:]
+            print("CLAVE: " + command)
+            if command == machine.ClaveArmado:
+                machine.go_to_state("Espera")
+                machine.EstadoReportado = estados["Inactivo"]
+                machine.TipoAlarma = alarma["NA"]
+                machine.SolicitudLlamada = llamada["No Presente"]
+                machine.SubestadoActual = subestados["Espera"]
 
 def validacionComando(tipo,machine):
     while True:
@@ -404,12 +461,14 @@ def validacionComando(tipo,machine):
                 case "#99#":
                     return "Zona"
                 case "#66#":
-                    return "Armado"
+                    return "CodArmado"
                 case "*0*0":
                     print("CLAVE ARMADO")
+                    machine.ModoArmado = modo["Zona 0"]
                     return "Armado"
                 case "*1*1":
                     print("CLAVE ARMADO")
+                    machine.ModoArmado = modo["Zona 1"]
                     return "Armado"
                 case _:
                     return "Espera" 
@@ -434,6 +493,8 @@ def actualizarSysCfg(machine):
         syscfg_file.writelines(machine.NumeroUsuario
                                +machine.TelefonoAgencia)   
 
+      
+
 ####    THREAD LOOP    ####
 def systemTask():
     #cargar contras
@@ -454,7 +515,7 @@ def systemTask():
     machine.add_state(estadoEspera())
     machine.add_state(subestadoBloqueo())
     machine.add_state(subestadoZona())
-    machine.add_state(subestadoArmado())
+    machine.add_state(subestadoCodArmado())
     machine.add_state(subestadoUsuario())
     machine.add_state(subestadoTelefono())
     machine.add_state(estadoArmado())
@@ -496,6 +557,20 @@ def sensorTask():
             with open("sensorcfg.txt",'w+') as sensorcfg:     
                 sensorcfg.writelines(lines)
 
+def reproducirAlarma():
+        alarma_event.wait()
+        alarma_event.clear()
+        long_active = False
+        while(True):
+            if PWM == 50:
+                ps.playsound('beep.mp3')
+                time.sleep(1)
+            elif PWM == 100 and long_active == False:
+                ps.playsound('longbeep.mp3', block=False)
+                long_active = True
+            if alarma_event.is_set():
+                break
+                
 
 #eventos
 close_event = th.Event() #cierre de la interfaz
@@ -503,6 +578,8 @@ keyboard_event = th.Event() #introducir comando o teclas
 panic_event = th.Event() #boton panico
 incen_event = th.Event() #boton incendio
 sensor_event = th.Event()
+alarma_event = th.Event()
+PWM = 0
 #colas
 panel_queue = Queue()#cola de datos para sistema
 #mutex
@@ -510,6 +587,8 @@ sensor_lock = th.Lock()
 #main
 system_thread = th.Thread(target=systemTask)
 sensor_thread = th.Thread(target=sensorTask)
+#alarma_thread = th.Thread(target=reproducirAlarma)
+
 sensor_thread.start()
 system_thread.start()
 panel.mainloop()
